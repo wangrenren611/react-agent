@@ -201,7 +201,7 @@ sequenceDiagram
                 end
             end
         else
-            Note over RA: 无工具调用
+            RA->>RA: 无工具调用
             break 退出循环
         end
     end
