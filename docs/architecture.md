@@ -197,12 +197,11 @@ sequenceDiagram
                 
                 alt 是完成函数
                     RA->>RA: 生成最终回复
-                    break 退出循环
+                    Note over RA: 退出循环
                 end
             end
-        else
-            RA->>RA: 无工具调用
-            break 退出循环
+        else 无工具调用
+            Note over RA: 退出循环
         end
     end
     
