@@ -1,0 +1,342 @@
+/**
+ * OpenAI聊天模型实现
+ * 支持OpenAI API的聊天模型调用
+ */
+
+import OpenAI from 'openai';
+import { 
+  IChatModel, 
+  ChatModelConfig, 
+  ModelResponse, 
+  StreamChunk, 
+  IMessage, 
+  ToolSchema,
+  ContentBlock,
+  ToolUseBlock
+} from '../types';
+import { logger, createCancellablePromise } from '../utils';
+import { createTextBlock, createToolUseBlock } from '../message';
+
+/**
+ * OpenAI聊天模型配置
+ */
+export interface OpenAIChatModelConfig extends ChatModelConfig {
+  model_name: string;
+  api_key: string;
+  base_url?: string;
+  organization?: string;
+  temperature?: number;
+  max_tokens?: number;
+  top_p?: number;
+  frequency_penalty?: number;
+  presence_penalty?: number;
+  stream?: boolean;
+  timeout?: number;
+}
+
+/**
+ * OpenAI聊天模型实现
+ */
+export class OpenAIChatModel implements IChatModel {
+  public config: OpenAIChatModelConfig;
+  public stream: boolean;
+  private client: OpenAI;
+
+  constructor(config: OpenAIChatModelConfig) {
+    this.config = {
+      temperature: 0.7,
+      max_tokens: 4096,
+      stream: false,
+      timeout: 60000,
+      ...config
+    };
+    
+    this.stream = this.config.stream || false;
+
+    // 初始化OpenAI客户端
+    this.client = new OpenAI({
+      apiKey: this.config.api_key,
+      baseURL: this.config.base_url,
+      organization: this.config.organization,
+      timeout: this.config.timeout
+    });
+
+    logger.debug(`初始化OpenAI聊天模型: ${this.config.model_name}`);
+  }
+
+  /**
+   * 调用模型生成响应
+   */
+  async call(
+    messages: string | IMessage[], 
+    tools?: ToolSchema[]
+  ): Promise<ModelResponse | AsyncGenerator<StreamChunk>> {
+    try {
+      // 转换消息格式
+      const openaiMessages = this.convertMessages(messages);
+      
+      // 构建请求参数
+      const requestParams: OpenAI.Chat.ChatCompletionCreateParams = {
+        model: this.config.model_name,
+        messages: openaiMessages,
+        temperature: this.config.temperature,
+        max_tokens: this.config.max_tokens,
+        top_p: this.config.top_p,
+        frequency_penalty: this.config.frequency_penalty,
+        presence_penalty: this.config.presence_penalty,
+        stream: this.stream
+      };
+
+      // 如果有工具，添加工具定义
+      if (tools && tools.length > 0) {
+        requestParams.tools = tools.map(tool => ({
+          type: 'function',
+          function: tool.function
+        }));
+        requestParams.tool_choice = 'auto';
+      }
+
+      logger.debug(`调用OpenAI API: ${this.config.model_name}`, {
+        messageCount: Array.isArray(messages) ? messages.length : 1,
+        toolCount: tools?.length || 0,
+        stream: this.stream
+      });
+
+      if (this.stream) {
+        return this.handleStreamResponse(requestParams);
+      } else {
+        return this.handleNormalResponse(requestParams);
+      }
+
+    } catch (error) {
+      logger.error('OpenAI API调用失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 处理普通响应
+   */
+  private async handleNormalResponse(
+    params: OpenAI.Chat.ChatCompletionCreateParams
+  ): Promise<ModelResponse> {
+    const response = await this.client.chat.completions.create(params);
+    const choice = response.choices[0];
+    
+    if (!choice) {
+      throw new Error('OpenAI API返回空响应');
+    }
+
+    const content: ContentBlock[] = [];
+
+    // 处理文本内容
+    if (choice.message.content) {
+      content.push(createTextBlock(choice.message.content));
+    }
+
+    // 处理工具调用
+    if (choice.message.tool_calls) {
+      for (const toolCall of choice.message.tool_calls) {
+        if (toolCall.type === 'function') {
+          const args = JSON.parse(toolCall.function.arguments || '{}');
+          content.push(createToolUseBlock(
+            toolCall.function.name,
+            args,
+            toolCall.id
+          ));
+        }
+      }
+    }
+
+    return {
+      content,
+      usage: response.usage ? {
+        prompt_tokens: response.usage.prompt_tokens,
+        completion_tokens: response.usage.completion_tokens,
+        total_tokens: response.usage.total_tokens
+      } : undefined
+    };
+  }
+
+  /**
+   * 处理流式响应
+   */
+  private async *handleStreamResponse(
+    params: OpenAI.Chat.ChatCompletionCreateParams
+  ): AsyncGenerator<StreamChunk> {
+    const stream = await this.client.chat.completions.create({
+      ...params,
+      stream: true
+    });
+
+    let textContent = '';
+    let currentToolCall: any = null;
+    let toolCalls: ToolUseBlock[] = [];
+
+    for await (const chunk of stream) {
+      const choice = chunk.choices[0];
+      if (!choice) continue;
+
+      const delta = choice.delta;
+      let content: ContentBlock[] = [];
+      let isLast = false;
+
+      // 处理文本内容
+      if (delta.content) {
+        textContent += delta.content;
+        content.push(createTextBlock(textContent));
+      }
+
+      // 处理工具调用
+      if (delta.tool_calls) {
+        for (const toolCallDelta of delta.tool_calls) {
+          const index = toolCallDelta.index || 0;
+          
+          if (!toolCalls[index]) {
+            toolCalls[index] = createToolUseBlock('', {}, toolCallDelta.id || '');
+          }
+
+          const toolCall = toolCalls[index];
+          
+          if (toolCallDelta.function?.name) {
+            toolCall.name = toolCallDelta.function.name;
+          }
+          
+          if (toolCallDelta.function?.arguments) {
+            if (!toolCall.input.__arguments) {
+              toolCall.input.__arguments = '';
+            }
+            toolCall.input.__arguments += toolCallDelta.function.arguments;
+          }
+        }
+        
+        // 尝试解析完整的工具调用
+        for (const toolCall of toolCalls) {
+          if (toolCall.input.__arguments) {
+            try {
+              const args = JSON.parse(toolCall.input.__arguments);
+              toolCall.input = args;
+              delete toolCall.input.__arguments;
+            } catch {
+              // 参数还不完整，继续等待
+            }
+          }
+        }
+
+        content.push(...toolCalls);
+      }
+
+      // 检查是否结束
+      if (choice.finish_reason) {
+        isLast = true;
+      }
+
+      yield {
+        content,
+        is_last: isLast
+      };
+
+      if (isLast) break;
+    }
+  }
+
+  /**
+   * 转换消息格式为OpenAI格式
+   */
+  private convertMessages(messages: string | IMessage[]): OpenAI.Chat.ChatCompletionMessageParam[] {
+    if (typeof messages === 'string') {
+      return [{ role: 'user', content: messages }];
+    }
+
+    const result: OpenAI.Chat.ChatCompletionMessageParam[] = [];
+
+    for (const msg of messages) {
+      if (typeof msg.content === 'string') {
+        // 简单文本消息
+        result.push({
+          role: msg.role as any,
+          content: msg.content,
+          name: msg.name !== msg.role ? msg.name : undefined
+        });
+      } else {
+        // 复杂内容块消息
+        const textBlocks = msg.content.filter(block => block.type === 'text');
+        const toolUseBlocks = msg.content.filter(block => block.type === 'tool_use') as ToolUseBlock[];
+        const toolResultBlocks = msg.content.filter(block => block.type === 'tool_result');
+
+        if (textBlocks.length > 0) {
+          const textContent = textBlocks.map(block => (block as any).text).join('\n');
+          result.push({
+            role: msg.role as any,
+            content: textContent,
+            name: msg.name !== msg.role ? msg.name : undefined
+          });
+        }
+
+        // 处理工具调用
+        if (toolUseBlocks.length > 0) {
+          const toolCalls = toolUseBlocks.map(block => ({
+            id: block.id,
+            type: 'function' as const,
+            function: {
+              name: block.name,
+              arguments: JSON.stringify(block.input)
+            }
+          }));
+
+          result.push({
+            role: 'assistant',
+            content: null,
+            tool_calls: toolCalls
+          });
+        }
+
+        // 处理工具结果
+        if (toolResultBlocks.length > 0) {
+          for (const block of toolResultBlocks) {
+            result.push({
+              role: 'tool',
+              content: typeof (block as any).output === 'string' 
+                ? (block as any).output 
+                : JSON.stringify((block as any).output),
+              tool_call_id: (block as any).id
+            });
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * 更新配置
+   */
+  updateConfig(newConfig: Partial<OpenAIChatModelConfig>): void {
+    this.config = { ...this.config, ...newConfig };
+    this.stream = this.config.stream || false;
+    
+    // 重新初始化客户端（如果API相关配置发生变化）
+    if (newConfig.api_key || newConfig.base_url || newConfig.organization) {
+      this.client = new OpenAI({
+        apiKey: this.config.api_key,
+        baseURL: this.config.base_url,
+        organization: this.config.organization,
+        timeout: this.config.timeout
+      });
+    }
+
+    logger.debug('更新OpenAI聊天模型配置');
+  }
+
+  /**
+   * 获取模型信息
+   */
+  getModelInfo(): { name: string; provider: string; config: OpenAIChatModelConfig } {
+    return {
+      name: this.config.model_name,
+      provider: 'OpenAI',
+      config: { ...this.config }
+    };
+  }
+}
