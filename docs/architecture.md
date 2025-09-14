@@ -200,7 +200,8 @@ sequenceDiagram
                     break 退出循环
                 end
             end
-        else 无工具调用
+        else
+            Note over RA: 无工具调用
             break 退出循环
         end
     end
