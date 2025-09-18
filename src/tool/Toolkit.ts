@@ -119,8 +119,8 @@ export class Toolkit implements IToolkit {
       // 验证输入参数
       const validatedInput = this.validateInput(input, tool.parameters);
       
-      // 调用工具函数
-      const result = await tool.func(validatedInput);
+      // 调用工具函数 - 将对象参数转换为位置参数
+      const result = await this.callToolFunctionWithArgs(tool.func, validatedInput, tool.parameters);
       
       // 确保返回的是AsyncGenerator
       if (this.isAsyncGenerator(result)) {
@@ -283,6 +283,35 @@ export class Toolkit implements IToolkit {
    */
   private async *createErrorGenerator(errorMessage: string): AsyncGenerator<ToolResponse> {
     yield createErrorResponse(errorMessage);
+  }
+
+  /**
+   * 根据参数schema将对象参数转换为位置参数调用工具函数
+   */
+  private async callToolFunctionWithArgs(
+    func: ToolFunction, 
+    input: any, 
+    parameters: ToolParameterSchema
+  ): Promise<any> {
+    // 获取参数顺序（根据schema的properties顺序）
+    const paramNames = Object.keys(parameters.properties || {});
+    
+    // 构建位置参数数组
+    const args: any[] = [];
+    for (const paramName of paramNames) {
+      if (paramName in input) {
+        args.push(input[paramName]);
+      } else if (parameters.required?.includes(paramName)) {
+        // 如果缺少必需参数，抛出错误
+        throw new Error(`缺少必需参数: ${paramName}`);
+      } else {
+        // 可选参数，如果没有提供则使用undefined（让函数使用默认值）
+        args.push(undefined);
+      }
+    }
+
+    // 调用函数并返回结果
+    return await func(...args);
   }
 }
 

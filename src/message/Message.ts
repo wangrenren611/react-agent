@@ -47,6 +47,11 @@ export class Message implements IMessage {
     if (typeof this.content === 'string') {
       return this.content;
     }
+    // 确保content是数组才能使用filter方法
+    if (!Array.isArray(this.content)) {
+      console.warn('Message content is not an array:', this.content);
+      return '';
+    }
 
     const textBlocks = this.content.filter(block => block.type === 'text') as TextBlock[];
     return textBlocks.map(block => block.text).join('\n');

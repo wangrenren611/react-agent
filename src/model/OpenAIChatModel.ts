@@ -343,16 +343,38 @@ export class OpenAIChatModel implements IChatModel {
       }
     }
 
-    // 如果还有未配对的工具调用，移除最后的工具调用消息以避免API错误
+    // 如果还有未配对的工具调用，只移除未配对的工具调用以避免API错误
     if (pendingToolCalls.size > 0) {
-      // 从后往前查找并移除未配对的工具调用消息
+      // 从后往前查找包含未配对工具调用的助手消息
       for (let i = result.length - 1; i >= 0; i--) {
         const msg = result[i];
         if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls) {
-          const hasUnpairedCalls = msg.tool_calls.some(call => pendingToolCalls.has(call.id));
-          if (hasUnpairedCalls) {
-            logger.warn('移除未配对的工具调用消息以避免API错误');
-            result.splice(i, 1);
+          const unpairedCallIds = new Set<string>();
+          
+          // 找出所有未配对的工具调用
+          msg.tool_calls.forEach(call => {
+            if (pendingToolCalls.has(call.id)) {
+              unpairedCallIds.add(call.id);
+            }
+          });
+          
+          if (unpairedCallIds.size > 0) {
+            logger.warn(`移除 ${unpairedCallIds.size} 个未配对的工具调用以避免API错误`);
+            
+            // 只移除未配对的工具调用，保留配对的工具调用
+            msg.tool_calls = msg.tool_calls.filter(call => !unpairedCallIds.has(call.id));
+            
+            // 如果没有工具调用了，移除tool_calls属性
+            if (msg.tool_calls.length === 0) {
+              delete msg.tool_calls;
+            }
+            
+            // 检查助手消息是否既没有content也没有tool_calls，如果是则完全移除这条消息
+            if ((!msg.content || msg.content === '') && !msg.tool_calls) {
+              logger.warn('移除无效的助手消息：既没有content也没有tool_calls');
+              result.splice(i, 1);
+            }
+            
             break;
           }
         }

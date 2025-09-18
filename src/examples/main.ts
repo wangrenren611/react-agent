@@ -62,6 +62,12 @@ async function basicExample(): Promise<void> {
     } catch (error) {
       logger.error('对话过程中发生错误:', error);
       console.log('抱歉，发生了错误。请重试。');
+      console.log('错误详情:', {
+        message: (error as any)?.message,
+        stack: (error as any)?.stack,
+        type: (error as any)?.constructor?.name,
+        raw: error
+      });
     }
   }
 

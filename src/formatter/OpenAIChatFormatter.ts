@@ -39,6 +39,18 @@ export class OpenAIChatFormatter implements IFormatter {
 
     logger.debug(`格式化 ${msgs.length} 条消息`);
 
+    // 检查是否有工具相关内容（工具调用或工具结果）
+    const hasToolContent = msgs.some(msg => 
+      Array.isArray(msg.content) && msg.content.some(block => 
+        block.type === 'tool_use' || block.type === 'tool_result'
+      )
+    );
+
+    // 如果有工具相关内容，保持原始顺序以避免破坏工具调用/结果的配对关系
+    if (hasToolContent) {
+      return this.postProcess(this.formatRegularMessages(msgs));
+    }
+
     const formattedMessages: IMessage[] = [];
 
     // 处理系统消息
@@ -154,11 +166,28 @@ export class OpenAIChatFormatter implements IFormatter {
              ));
     });
 
-    // 确保消息顺序正确（系统消息在前）
-    const systemMessages = nonEmptyMessages.filter(msg => msg.role === 'system');
-    const otherMessages = nonEmptyMessages.filter(msg => msg.role !== 'system');
+    // 如果启用了系统消息分离模式，确保系统消息在前
+    // 但要注意保持工具调用和工具结果的配对关系
+    if (this.systemMessageHandling === 'separate') {
+      const systemMessages = nonEmptyMessages.filter(msg => msg.role === 'system');
+      const otherMessages = nonEmptyMessages.filter(msg => msg.role !== 'system');
+      
+      // 检查是否有工具相关的内容块
+      const hasToolContent = nonEmptyMessages.some(msg => 
+        Array.isArray(msg.content) && msg.content.some(block => 
+          block.type === 'tool_use' || block.type === 'tool_result'
+        )
+      );
+      
+      // 如果有工具相关内容，保持原始顺序以避免破坏工具调用/结果的配对
+      if (hasToolContent) {
+        return nonEmptyMessages;
+      }
+      
+      return [...systemMessages, ...otherMessages];
+    }
 
-    return [...systemMessages, ...otherMessages];
+    return nonEmptyMessages;
   }
 
   /**
