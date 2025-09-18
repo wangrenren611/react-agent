@@ -21,8 +21,24 @@ export * from './model';
 // 格式化器
 export * from './formatter';
 
-// 类型定义
-export * from './types';
+// 类型定义（排除已在其他模块导出的类型）
+export type { 
+  MessageRole, 
+  AgentHookTypes, 
+  ContentBlock, 
+  TextBlock, 
+  ThinkingBlock, 
+  MessageContent, 
+  ModelResponse, 
+  StreamChunk, 
+  ChatModelConfig, 
+  IChatModel, 
+  ToolParameterSchema, 
+  ToolSchema, 
+  HookFunction, 
+  AgentConfig, 
+  StructuredModel 
+} from './types';
 
 // 工具函数
 export * from './utils';
@@ -45,3 +61,8 @@ export const LIBRARY_INFO = {
  * 快速创建ReActAgent的工厂函数
  */
 export { createReActAgent } from './examples/factory';
+
+
+
+
+

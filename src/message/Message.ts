@@ -58,15 +58,19 @@ export class Message implements IMessage {
   getContentBlocks<T extends ContentBlock>(type?: string): T[] {
     if (typeof this.content === 'string') {
       if (!type || type === 'text') {
-        return [{ type: 'text', text: this.content } as T];
+        return [{ type: 'text', text: this.content } as unknown as T];
       }
+      return [];
+    }
+
+    if (!Array.isArray(this.content)) {
       return [];
     }
 
     if (!type) {
       return this.content as T[];
     }
-
+     console.log('🔍 调试信息 - getContentBlocks 过滤类型:', this.content);
     return this.content.filter(block => block.type === type) as T[];
   }
 
@@ -84,7 +88,7 @@ export class Message implements IMessage {
     if (typeof this.content === 'string') {
       // 如果当前内容是字符串，转换为内容块数组
       this.content = [
-        { type: 'text', text: this.content },
+        createTextBlock(this.content),
         block
       ];
     } else {

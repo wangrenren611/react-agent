@@ -4,3 +4,4 @@
 
 export * from './InMemoryMemory';
 export { IMemory, ILongTermMemory } from '../types';
+

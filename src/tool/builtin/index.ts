@@ -399,3 +399,4 @@ CPU使用:
 (insertTextFile as any).description = '向文本文件的指定行插入内容';
 (listDirectory as any).description = '列出目录中的文件和子目录';
 (getSystemInfo as any).description = '获取当前系统的基本信息';
+

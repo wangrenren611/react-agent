@@ -11,5 +11,7 @@ export {
   ToolSchema, 
   ToolUseBlock,
   ToolResultBlock,
-  ToolParameterSchema
+  ToolParameterSchema,
+  ToolResponse as IToolResponse
 } from '../types';
+

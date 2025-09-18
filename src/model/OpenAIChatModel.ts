@@ -14,7 +14,7 @@ import {
   ContentBlock,
   ToolUseBlock
 } from '../types';
-import { logger, createCancellablePromise } from '../utils';
+import { logger } from '../utils';
 import { createTextBlock, createToolUseBlock } from '../message';
 
 /**
@@ -47,7 +47,7 @@ export class OpenAIChatModel implements IChatModel {
       temperature: 0.7,
       max_tokens: 4096,
       stream: false,
-      timeout: 60000,
+      timeout: 30000, // 默认30秒超时
       ...config
     };
     
@@ -90,8 +90,12 @@ export class OpenAIChatModel implements IChatModel {
       // 如果有工具，添加工具定义
       if (tools && tools.length > 0) {
         requestParams.tools = tools.map(tool => ({
-          type: 'function',
-          function: tool.function
+          type: 'function' as const,
+          function: {
+            name: tool.function.name,
+            description: tool.function.description,
+            parameters: tool.function.parameters as any
+          }
         }));
         requestParams.tool_choice = 'auto';
       }
@@ -108,9 +112,28 @@ export class OpenAIChatModel implements IChatModel {
         return this.handleNormalResponse(requestParams);
       }
 
-    } catch (error) {
-      logger.error('OpenAI API调用失败:', error);
-      throw error;
+    } catch (error: any) {
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        logger.error(`OpenAI API调用超时 (${this.config.timeout}ms):`, {
+          model: this.config.model_name,
+          baseUrl: this.config.base_url,
+          error: error.message
+        });
+        throw new Error(`API调用超时，请检查网络连接或增加超时时间`);
+      } else if (error.status === 401) {
+        logger.error('OpenAI API认证失败:', {
+          model: this.config.model_name,
+          baseUrl: this.config.base_url
+        });
+        throw new Error('API密钥无效，请检查OPENAI_API_KEY或DEEPSEEK_API_KEY');
+      } else {
+        logger.error('OpenAI API调用失败:', {
+          model: this.config.model_name,
+          baseUrl: this.config.base_url,
+          error: error.message || error
+        });
+        throw error;
+      }
     }
   }
 
@@ -120,7 +143,7 @@ export class OpenAIChatModel implements IChatModel {
   private async handleNormalResponse(
     params: OpenAI.Chat.ChatCompletionCreateParams
   ): Promise<ModelResponse> {
-    const response = await this.client.chat.completions.create(params);
+    const response = await this.client.chat.completions.create(params) as OpenAI.Chat.ChatCompletion;
     const choice = response.choices[0];
     
     if (!choice) {
@@ -170,7 +193,6 @@ export class OpenAIChatModel implements IChatModel {
     });
 
     let textContent = '';
-    let currentToolCall: any = null;
     let toolCalls: ToolUseBlock[] = [];
 
     for await (const chunk of stream) {
@@ -249,6 +271,7 @@ export class OpenAIChatModel implements IChatModel {
     }
 
     const result: OpenAI.Chat.ChatCompletionMessageParam[] = [];
+    const pendingToolCalls = new Map<string, any>(); // Track tool calls waiting for responses
 
     for (const msg of messages) {
       if (typeof msg.content === 'string') {
@@ -258,12 +281,13 @@ export class OpenAIChatModel implements IChatModel {
           content: msg.content,
           name: msg.name !== msg.role ? msg.name : undefined
         });
-      } else {
+      } else if (Array.isArray(msg.content)) {
         // 复杂内容块消息
         const textBlocks = msg.content.filter(block => block.type === 'text');
         const toolUseBlocks = msg.content.filter(block => block.type === 'tool_use') as ToolUseBlock[];
         const toolResultBlocks = msg.content.filter(block => block.type === 'tool_result');
 
+        // 处理文本内容
         if (textBlocks.length > 0) {
           const textContent = textBlocks.map(block => (block as any).text).join('\n');
           result.push({
@@ -273,8 +297,8 @@ export class OpenAIChatModel implements IChatModel {
           });
         }
 
-        // 处理工具调用
-        if (toolUseBlocks.length > 0) {
+        // 处理工具调用（仅当角色为 assistant 时）
+        if (toolUseBlocks.length > 0 && msg.role === 'assistant') {
           const toolCalls = toolUseBlocks.map(block => ({
             id: block.id,
             type: 'function' as const,
@@ -284,6 +308,11 @@ export class OpenAIChatModel implements IChatModel {
             }
           }));
 
+          // 记录待处理的工具调用
+          toolCalls.forEach(call => {
+            pendingToolCalls.set(call.id, call);
+          });
+
           result.push({
             role: 'assistant',
             content: null,
@@ -291,16 +320,40 @@ export class OpenAIChatModel implements IChatModel {
           });
         }
 
-        // 处理工具结果
+        // 处理工具结果（仅当有对应的工具调用时）
         if (toolResultBlocks.length > 0) {
           for (const block of toolResultBlocks) {
-            result.push({
-              role: 'tool',
-              content: typeof (block as any).output === 'string' 
-                ? (block as any).output 
-                : JSON.stringify((block as any).output),
-              tool_call_id: (block as any).id
-            });
+            const toolCallId = (block as any).id;
+            
+            // 只有当存在对应的工具调用时才添加工具结果
+            if (pendingToolCalls.has(toolCallId)) {
+              result.push({
+                role: 'tool',
+                content: typeof (block as any).output === 'string' 
+                  ? (block as any).output 
+                  : JSON.stringify((block as any).output),
+                tool_call_id: toolCallId
+              });
+              
+              // 移除已处理的工具调用
+              pendingToolCalls.delete(toolCallId);
+            }
+          }
+        }
+      }
+    }
+
+    // 如果还有未配对的工具调用，移除最后的工具调用消息以避免API错误
+    if (pendingToolCalls.size > 0) {
+      // 从后往前查找并移除未配对的工具调用消息
+      for (let i = result.length - 1; i >= 0; i--) {
+        const msg = result[i];
+        if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls) {
+          const hasUnpairedCalls = msg.tool_calls.some(call => pendingToolCalls.has(call.id));
+          if (hasUnpairedCalls) {
+            logger.warn('移除未配对的工具调用消息以避免API错误');
+            result.splice(i, 1);
+            break;
           }
         }
       }
@@ -340,3 +393,4 @@ export class OpenAIChatModel implements IChatModel {
     };
   }
 }
+

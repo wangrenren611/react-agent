@@ -4,7 +4,7 @@
  */
 
 import { AgentBase } from './AgentBase';
-import { IMessage, AgentHookTypes, HookFunction, StructuredModel } from '../types';
+import { IMessage, AgentHookTypes, HookFunction } from '../types';
 import { logger, deepClone } from '../utils';
 
 /**
@@ -401,3 +401,4 @@ export abstract class ReActAgentBase extends AgentBase {
     return currentOutput;
   }
 }
+

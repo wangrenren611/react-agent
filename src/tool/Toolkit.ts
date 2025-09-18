@@ -12,7 +12,7 @@ import {
   StructuredModel
 } from '../types';
 import { ToolResponse, createErrorResponse } from './ToolResponse';
-import { logger, safeJsonParse } from '../utils';
+import { logger } from '../utils';
 
 /**
  * 工具函数元数据
@@ -127,7 +127,7 @@ export class Toolkit implements IToolkit {
         return result;
       } else {
         // 如果不是AsyncGenerator，包装成一个
-        return this.wrapInAsyncGenerator(result as ToolResponse);
+        return this.wrapInAsyncGenerator(result as unknown as ToolResponse);
       }
 
     } catch (error) {
@@ -285,3 +285,4 @@ export class Toolkit implements IToolkit {
     yield createErrorResponse(errorMessage);
   }
 }
+

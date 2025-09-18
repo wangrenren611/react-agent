@@ -62,12 +62,13 @@ export function createReActAgent(options: QuickCreateOptions): ReActAgent {
 
   // 创建模型
   const model = new OpenAIChatModel({
-    model_name: options.modelName || 'gpt-3.5-turbo',
+    model_name: options.modelName || 'deepseek-chat',
     api_key: options.openaiApiKey,
-    base_url: options.baseUrl,
+    base_url: options.baseUrl || 'https://api.deepseek.com',
     temperature: options.temperature || 0.7,
     max_tokens: options.maxTokens || 4096,
-    stream: options.stream || false
+    stream: options.stream || false,
+    timeout: 30000 // 30秒超时
   });
 
   // 创建格式化器
@@ -244,7 +245,7 @@ export function createCodeAssistantAgent(
     name,
     systemPrompt,
     openaiApiKey,
-    modelName: 'gpt-4',
+    modelName: 'deepseek-chat',
     temperature: 0.3,
     enableBuiltinTools: true,
     enableLongTermMemory: true,
@@ -281,7 +282,7 @@ export function createGeneralAssistantAgent(
     name,
     systemPrompt,
     openaiApiKey,
-    modelName: 'gpt-3.5-turbo',
+    modelName: 'deepseek-chat',
     temperature: 0.7,
     enableBuiltinTools: false,
     enableLongTermMemory: false,
@@ -318,7 +319,7 @@ export function createResearchAssistantAgent(
     name,
     systemPrompt,
     openaiApiKey,
-    modelName: 'gpt-4',
+    modelName: 'deepseek-chat',
     temperature: 0.5,
     enableBuiltinTools: true,
     enableLongTermMemory: true,
@@ -329,3 +330,8 @@ export function createResearchAssistantAgent(
     ...options
   });
 }
+
+
+
+
+

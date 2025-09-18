@@ -10,7 +10,8 @@ import {
 } from './factory';
 import { UserAgent } from '../agent';
 import { logger } from '../utils';
-
+import * as dotenv from "dotenv";
+dotenv.config({ path: ".env" });
 // 从环境变量获取OpenAI API密钥
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -19,6 +20,9 @@ if (!OPENAI_API_KEY) {
   console.error('使用方法: export OPENAI_API_KEY=your_api_key_here');
   process.exit(1);
 }
+
+// 确保 API 密钥不为 undefined
+const apiKey: string = OPENAI_API_KEY;
 
 /**
  * 基础使用示例
@@ -29,9 +33,9 @@ async function basicExample(): Promise<void> {
   // 创建代码助手Agent
   const codeAgent = createCodeAssistantAgent(
     'CodeHelper',
-    OPENAI_API_KEY,
+    apiKey,
     {
-      stream: true,
+      stream: false,
       maxIters: 10
     }
   );
@@ -73,9 +77,9 @@ async function advancedExample(): Promise<void> {
   // 创建研究助手Agent（启用所有高级功能）
   const researchAgent = createResearchAssistantAgent(
     'ResearchBot',
-    OPENAI_API_KEY,
+    apiKey,
     {
-      stream: true,
+      stream: false,
       parallelToolCalls: true,
       enableMetaTool: true,
       enableLongTermMemory: true,
@@ -99,7 +103,7 @@ async function advancedExample(): Promise<void> {
     
     try {
       const userMsg = await new UserAgent().silentReply(question);
-      const response = await researchAgent.reply(userMsg);
+      await researchAgent.reply(userMsg);
       
       console.log('\n[处理完成]');
       
@@ -138,7 +142,7 @@ async function structuredOutputExample(): Promise<void> {
 
   const agent = createGeneralAssistantAgent(
     'TaskAnalyzer',
-    OPENAI_API_KEY
+    apiKey
   );
 
   const taskDescription = '创建一个Web应用来管理个人待办事项';
@@ -170,7 +174,7 @@ async function parallelToolCallsExample(): Promise<void> {
 
   const agent = createCodeAssistantAgent(
     'ParallelBot',
-    OPENAI_API_KEY,
+    apiKey,
     {
       parallelToolCalls: true,
       maxIters: 5
@@ -185,7 +189,7 @@ async function parallelToolCallsExample(): Promise<void> {
     console.log('开始并行执行多个工具调用...');
     const startTime = Date.now();
     
-    const response = await agent.reply(userMsg);
+    await agent.reply(userMsg);
     
     const endTime = Date.now();
     console.log(`\n执行完成，耗时: ${endTime - startTime}ms`);
@@ -246,7 +250,7 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason, _promise) => {
   logger.error('未处理的Promise拒绝:', reason);
   process.exit(1);
 });
@@ -264,3 +268,8 @@ if (require.main === module) {
     process.exit(1);
   });
 }
+
+
+
+
+

@@ -44,9 +44,8 @@ export abstract class AgentBase implements IAgent {
   // 实例级别的Hook存储
   private instanceHooks: Map<AgentHookTypes, HookStorage> = new Map();
 
-  // 当前回复任务和ID
+  // 当前回复任务
   private replyTask: Promise<IMessage> | null = null;
-  private replyId: string | null = null;
 
   // 流式打印前缀缓存
   private streamPrefix: Map<string, string> = new Map();
@@ -55,7 +54,7 @@ export abstract class AgentBase implements IAgent {
   private subscribers: Map<string, IAgent[]> = new Map();
 
   // 控制台输出开关
-  private disableConsoleOutput: boolean = false;
+  private _disableConsoleOutput: boolean = false;
 
   constructor(name: string) {
     this.id = generateUuid();
@@ -86,7 +85,7 @@ export abstract class AgentBase implements IAgent {
    * 打印消息
    */
   async print(msg: IMessage, last: boolean = true): Promise<void> {
-    if (this.disableConsoleOutput) {
+    if (this._disableConsoleOutput) {
       return;
     }
 
@@ -155,7 +154,7 @@ export abstract class AgentBase implements IAgent {
   /**
    * 处理中断
    */
-  async handleInterrupt(msg?: IMessage | IMessage[] | null): Promise<IMessage> {
+  async handleInterrupt(_msg?: IMessage | IMessage[] | null): Promise<IMessage> {
     const responseMsg = new Message(
       this.name,
       '我注意到您打断了我。有什么我可以为您做的吗？',
@@ -170,7 +169,7 @@ export abstract class AgentBase implements IAgent {
   /**
    * 中断当前回复过程
    */
-  async interrupt(msg?: IMessage | IMessage[] | null): Promise<void> {
+  async interrupt(_msg?: IMessage | IMessage[] | null): Promise<void> {
     if (this.replyTask) {
       // 注意：在实际实现中，这里需要更复杂的中断机制
       logger.debug(`中断Agent回复: ${this.name}`);
@@ -185,7 +184,6 @@ export abstract class AgentBase implements IAgent {
     msg?: IMessage | IMessage[] | null, 
     structuredModel?: StructuredModel
   ): Promise<IMessage> {
-    this.replyId = generateUuid();
     let replyMsg: IMessage | null = null;
 
     try {
@@ -261,7 +259,7 @@ export abstract class AgentBase implements IAgent {
         logger.debug(`清空实例级Hook: ${this.name}.${hookType}`);
       }
     } else {
-      for (const [type, hooks] of this.instanceHooks.entries()) {
+      for (const [_type, hooks] of this.instanceHooks.entries()) {
         Object.keys(hooks).forEach(key => delete hooks[key]);
       }
       logger.debug(`清空所有实例级Hook: ${this.name}`);
@@ -330,7 +328,7 @@ export abstract class AgentBase implements IAgent {
             logger.debug(`清空类级Hook: ${className}.${hookType}`);
           }
         } else {
-          for (const [type, hooks] of classHookMap.entries()) {
+          for (const [_type, hooks] of classHookMap.entries()) {
             Object.keys(hooks).forEach(key => delete hooks[key]);
           }
           logger.debug(`清空所有类级Hook: ${className}`);
@@ -366,7 +364,7 @@ export abstract class AgentBase implements IAgent {
    * 禁用控制台输出
    */
   disableConsoleOutput(): void {
-    this.disableConsoleOutput = true;
+    this._disableConsoleOutput = true;
     logger.debug(`禁用控制台输出: ${this.name}`);
   }
 
@@ -374,7 +372,7 @@ export abstract class AgentBase implements IAgent {
    * 启用控制台输出
    */
   enableConsoleOutput(): void {
-    this.disableConsoleOutput = false;
+    this._disableConsoleOutput = false;
     logger.debug(`启用控制台输出: ${this.name}`);
   }
 

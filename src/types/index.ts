@@ -86,6 +86,36 @@ export interface IMessage {
   content: MessageContent;
   role: MessageRole;
   metadata?: Record<string, any>;
+  
+  /**
+   * 获取文本内容
+   */
+  getTextContent(): string;
+  
+  /**
+   * 获取指定类型的内容块
+   */
+  getContentBlocks<T extends ContentBlock>(type?: string): T[];
+  
+  /**
+   * 检查是否包含指定类型的内容块
+   */
+  hasContentBlocks(type: string): boolean;
+  
+  /**
+   * 添加内容块
+   */
+  addContentBlock(block: ContentBlock): void;
+  
+  /**
+   * 设置内容
+   */
+  setContent(content: MessageContent): void;
+  
+  /**
+   * 克隆消息
+   */
+  clone(): IMessage;
 }
 
 // ========== 模型相关类型 ==========
@@ -176,7 +206,7 @@ export interface ToolResponse {
 /**
  * 工具函数类型
  */
-export type ToolFunction = (...args: any[]) => Promise<AsyncGenerator<ToolResponse>>;
+export type ToolFunction = (...args: any[]) => AsyncGenerator<ToolResponse>;
 
 /**
  * 工具包接口
@@ -186,6 +216,16 @@ export interface IToolkit {
    * 注册工具函数
    */
   registerToolFunction(func: ToolFunction, name?: string): void;
+  
+  /**
+   * 注册带完整元数据的工具函数
+   */
+  registerToolWithMetadata(
+    func: ToolFunction,
+    name: string,
+    description: string,
+    parameters: ToolParameterSchema
+  ): void;
   
   /**
    * 获取工具JSON Schema
@@ -201,6 +241,11 @@ export interface IToolkit {
    * 重置装备的工具
    */
   resetEquippedTools(toolNames: string[]): void;
+  
+  /**
+   * 设置扩展模型
+   */
+  setExtendedModel(toolName: string, model: StructuredModel): void;
 }
 
 // ========== 内存相关类型 ==========
@@ -240,14 +285,14 @@ export interface ILongTermMemory {
   record(msgs: IMessage[]): Promise<void>;
   
   /**
-   * 记录到内存的工具函数
+   * 记录内容到内存
    */
-  recordToMemory(content: string): Promise<AsyncGenerator<ToolResponse>>;
+  recordToMemory(content: string): AsyncGenerator<ToolResponse>;
   
   /**
-   * 从内存检索的工具函数
+   * 从内存检索信息
    */
-  retrieveFromMemory(query: string): Promise<AsyncGenerator<ToolResponse>>;
+  retrieveFromMemory(query: string): AsyncGenerator<ToolResponse>;
 }
 
 // ========== 格式化器相关类型 ==========
@@ -331,4 +376,5 @@ export interface IAgent {
 export type StructuredModel = z.ZodType<any>;
 
 // ========== 导出所有类型 ==========
-export * from './index';
+// 注意：不要在此处添加循环导入
+

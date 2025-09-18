@@ -14,7 +14,8 @@ import {
   ToolUseBlock,
   ToolResultBlock,
   StructuredModel,
-  AgentConfig
+  AgentConfig,
+  ContentBlock
 } from '../types';
 import { 
   Message, 
@@ -25,8 +26,7 @@ import {
 } from '../message';
 import { InMemoryMemory } from '../memory';
 import { Toolkit, ToolResponse } from '../tool';
-import { generateShortUuid, logger, ensureArray, asyncIteratorToArray } from '../utils';
-import { z } from 'zod';
+import { generateShortUuid, logger, ensureArray } from '../utils';
 
 /**
  * 完成函数的前置打印Hook
@@ -112,9 +112,11 @@ export class ReActAgent extends ReActAgentBase {
     
     // 长期内存模式配置
     this.longTermMemoryMode = config.long_term_memory_mode || 'both';
-    this.staticControl = this.longTermMemory && ['static_control', 'both'].includes(this.longTermMemoryMode);
-    this.agentControl = this.longTermMemory && this.longTermMemoryMode === 'agent_control';
-
+    
+    // 设置控制模式
+    this.staticControl = !!(this.longTermMemory && ['static_control', 'both'].includes(this.longTermMemoryMode));
+    this.agentControl = !!(this.longTermMemory && ['agent_control', 'both'].includes(this.longTermMemoryMode));
+    
     // 其他配置
     this.enableMetaTool = config.enable_meta_tool || false;
     this.parallelToolCalls = config.parallel_tool_calls || false;
@@ -154,11 +156,11 @@ export class ReActAgent extends ReActAgentBase {
     structuredModel?: StructuredModel
   ): Promise<IMessage> {
     // 添加输入消息到内存
-    await this.memory.add(msg);
+    await this.memory.add(msg || null);
 
     // 长期内存检索（静态控制模式）
     if (this.staticControl) {
-      const retrievedInfo = await this.longTermMemory!.retrieve(msg);
+      const retrievedInfo = await this.longTermMemory!.retrieve(msg || null);
       if (retrievedInfo) {
         const longTermMemoryMsg = MessageFactory.createUserMessage(
           `<long_term_memory>以下内容来自长期内存，可能有用：\n${retrievedInfo}</long_term_memory>`,
@@ -267,9 +269,17 @@ export class ReActAgent extends ReActAgentBase {
     if (this.isAsyncGenerator(response)) {
       // 流式响应处理
       msg = new Message(this.name, [], 'assistant');
+      let accumulatedContent: ContentBlock[] = [];
       
       for await (const chunk of response) {
-        msg.setContent(chunk.content);
+        // 累积内容块
+        if (Array.isArray(chunk.content)) {
+          accumulatedContent = [...accumulatedContent, ...chunk.content];
+        } else {
+          accumulatedContent.push(chunk.content as ContentBlock);
+        }
+        
+        msg.setContent(accumulatedContent);
         await this.print(msg, false);
       }
       await this.print(msg, true);
@@ -315,8 +325,11 @@ export class ReActAgent extends ReActAgentBase {
       
       // 处理工具响应
       for await (const chunk of toolResponseGenerator) {
-        // 更新工具结果
-        (toolResultMsg.content[0] as ToolResultBlock).output = chunk.content;
+        // 更新工具结果 - 将内容块数组转换为文本
+        const textContent = Array.isArray(chunk.content) 
+          ? chunk.content.map(block => (block as any).text || JSON.stringify(block)).join('\n')
+          : String(chunk.content);
+        (toolResultMsg.content[0] as ToolResultBlock).output = textContent;
 
         // 跳过完成函数的打印（除非失败）
         if (
@@ -425,6 +438,26 @@ export class ReActAgent extends ReActAgentBase {
   }
 
   /**
+   * 创建重置工具的包装函数
+   */
+  private async *createResetToolsWrapper(toolNames: string[]): AsyncGenerator<ToolResponse> {
+    try {
+      this.toolkit.resetEquippedTools(toolNames);
+      yield new ToolResponse(
+        `成功重置工具列表，当前装备工具: ${toolNames.join(', ')}`,
+        { success: true, toolNames },
+        true
+      );
+    } catch (error) {
+      yield new ToolResponse(
+        `重置工具列表失败: ${error}`,
+        { success: false, error: String(error) },
+        true
+      );
+    }
+  }
+
+  /**
    * 设置工具包
    */
   private setupToolkit(): void {
@@ -459,9 +492,21 @@ export class ReActAgent extends ReActAgentBase {
 
     // 如果启用了元工具，添加工具管理功能
     if (this.enableMetaTool) {
-      this.toolkit.registerToolFunction(
-        this.toolkit.resetEquippedTools.bind(this.toolkit),
-        'reset_equipped_tools'
+      this.toolkit.registerToolWithMetadata(
+        this.createResetToolsWrapper.bind(this),
+        'reset_equipped_tools',
+        '重置装备的工具列表',
+        {
+          type: 'object',
+          properties: {
+            toolNames: {
+              type: 'array',
+              items: { type: 'string' },
+              description: '要装备的工具名称列表'
+            }
+          },
+          required: ['toolNames']
+        }
       );
     }
   }
@@ -469,7 +514,7 @@ export class ReActAgent extends ReActAgentBase {
   /**
    * 处理中断
    */
-  async handleInterrupt(msg?: IMessage | IMessage[] | null): Promise<IMessage> {
+  async handleInterrupt(_msg?: IMessage | IMessage[] | null): Promise<IMessage> {
     const responseMsg = new Message(
       this.name,
       '我注意到您打断了我。有什么我可以为您做的吗？',

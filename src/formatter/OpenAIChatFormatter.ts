@@ -4,6 +4,7 @@
  */
 
 import { IFormatter, IMessage } from '../types';
+import { Message } from '../message';
 import { logger } from '../utils';
 
 /**
@@ -53,11 +54,11 @@ export class OpenAIChatFormatter implements IFormatter {
             .join('\n\n');
           
           if (mergedSystemContent) {
-            formattedMessages.push({
-              name: 'system',
-              content: mergedSystemContent,
-              role: 'system'
-            });
+            formattedMessages.push(new Message(
+              'system',
+              mergedSystemContent,
+              'system'
+            ));
           }
         }
         formattedMessages.push(...this.formatRegularMessages(nonSystemMessages));
@@ -67,11 +68,11 @@ export class OpenAIChatFormatter implements IFormatter {
         if (systemMessages.length > 0) {
           // 只保留第一个系统消息
           const firstSystemMessage = systemMessages[0];
-          formattedMessages.push({
-            name: 'system',
-            content: this.extractTextContent(firstSystemMessage),
-            role: 'system'
-          });
+          formattedMessages.push(new Message(
+            'system',
+            this.extractTextContent(firstSystemMessage),
+            'system'
+          ));
         }
         formattedMessages.push(...this.formatRegularMessages(nonSystemMessages));
         break;
@@ -98,12 +99,12 @@ export class OpenAIChatFormatter implements IFormatter {
    * 格式化单个消息
    */
   private formatSingleMessage(msg: IMessage): IMessage {
-    const formattedMsg: IMessage = {
-      name: this.includeNames ? msg.name : msg.role,
-      content: msg.content,
-      role: msg.role,
-      metadata: msg.metadata
-    };
+    const formattedMsg = new Message(
+      this.includeNames ? msg.name : msg.role,
+      msg.content,
+      msg.role,
+      msg.metadata || {}
+    );
 
     // 如果内容是数组，需要特殊处理
     if (Array.isArray(msg.content)) {
@@ -197,12 +198,12 @@ export class OpenAIChatFormatter implements IFormatter {
  */
 export class SimpleFormatter implements IFormatter {
   async format(msgs: IMessage[]): Promise<IMessage[]> {
-    return msgs.map(msg => ({
-      name: msg.name,
-      content: msg.content,
-      role: msg.role,
-      metadata: msg.metadata
-    }));
+    return msgs.map(msg => new Message(
+      msg.name,
+      msg.content,
+      msg.role,
+      msg.metadata || {}
+    ));
   }
 }
 
@@ -254,3 +255,4 @@ export class StringFormatter implements IFormatter {
       .join('\n');
   }
 }
+
