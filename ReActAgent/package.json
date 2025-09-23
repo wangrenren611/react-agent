@@ -1,0 +1,42 @@
+{
+  "name": "@agentscope/react-agent",
+  "version": "1.0.0",
+  "description": "Node.js TypeScript版本的ReActAgent实现",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/examples/main.ts",
+    "start": "node dist/examples/main.js",
+    "test": "jest",
+    "lint": "eslint src/**/*.ts",
+    "format": "prettier --write src/**/*.ts"
+  },
+  "keywords": [
+    "agent",
+    "react",
+    "ai",
+    "llm",
+    "typescript",
+    "nodejs"
+  ],
+  "author": "AgentScope",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.11.0",
+    "@types/uuid": "^9.0.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.2.0",
+    "ts-jest": "^29.1.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "dotenv": "^17.2.2",
+    "openai": "^4.0.0",
+    "uuid": "^9.0.0",
+    "zod": "^3.22.0"
+  }
+}
